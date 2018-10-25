@@ -2,7 +2,7 @@
 """
 Created on Thu Sep 27 12:01:24 2018
 
-@author: mcdssso
+@author: Steve O'Hagan
 """
 import nltk
 import numpy as np
