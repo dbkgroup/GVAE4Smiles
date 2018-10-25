@@ -5,9 +5,29 @@ import h5py
 import smilesG as G
 import os
 
-MAX_LEN=277
+MAX_LEN=380 #was 277
 NCHARS = len(G.GCFG.productions())
 
+#%%
+
+def getML(smiles):
+    """ Check MAX_LEN """
+    assert type(smiles) == list
+    prod_map = {}
+    for ix, prod in enumerate(G.GCFG.productions()):
+        prod_map[prod] = ix
+    tokenize = G.get_zinc_tokenizer()
+    parser = nltk.ChartParser(G.GCFG)
+    ML=0
+    for i in range(0, len(smiles), 100):
+        L=smiles[i:i+100]
+        tokens = list(map(tokenize, L))
+        parse_trees = [next(parser.parse(t)) for t in tokens]
+        productions_seq = [tree.productions() for tree in parse_trees]
+        indices = [np.array([prod_map[prod] for prod in entry], dtype=int) for entry in productions_seq]
+        for i in range(len(indices)):
+            ML = max(len(indices[i]),ML)
+    return ML
 
 #%%
 def to_one_hot(smiles):
@@ -37,6 +57,7 @@ def _createData(fn):
         line = line.strip()
         L.append(line)
     f.close()
+    print('Max_LEN:',getML(L))
     data = np.zeros((len(L),MAX_LEN,NCHARS))
     for i in range(0, len(L), 100):
         print('Processing: i=[' + str(i) + ':' + str(i+100) + ']')
@@ -55,7 +76,7 @@ def _readData(fn):
     return data
 
 #%%
-def getData(fn='data/250k_rndm_zinc_drugs_clean',clr=False):
+def getData(fn,clr=False):
     if clr:
         if os.path.isfile(fn+'.h5'):
             os.remove(fn+'.h5')
@@ -63,4 +84,21 @@ def getData(fn='data/250k_rndm_zinc_drugs_clean',clr=False):
         data = _readData(fn)
     else:
         data = _createData(fn)
-    return data, fn
+    return data
+
+#%%
+if __name__ == "__main__":
+
+    #fn = 'data/100kChEMBL23'
+
+    #fn = 'data/10kChEMBL23'
+
+    fn = 'data/5kChEMBL23'
+
+    #fn = 'data/250k_rndm_zinc_drugs_clean'
+
+    data = getData(fn)
+
+
+
+

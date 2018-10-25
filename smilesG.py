@@ -10,7 +10,9 @@ import six
 
 #%%
 
-# the zinc grammar
+# Subset of Open SMILES grammar
+# See: http://opensmiles.org/opensmiles.html
+#
 gram = """smiles -> chain
 atom -> bracket_atom
 atom -> aliphatic_organic
@@ -25,10 +27,17 @@ aliphatic_organic -> 'F'
 aliphatic_organic -> 'I'
 aliphatic_organic -> 'Cl'
 aliphatic_organic -> 'Br'
+aromatic_organic -> 'b'
 aromatic_organic -> 'c'
 aromatic_organic -> 'n'
 aromatic_organic -> 'o'
 aromatic_organic -> 's'
+aromatic_organic -> 'p'
+element_symbol -> 'H'
+element_symbol -> 'Si'
+element_symbol -> 'Se'
+aromatic_symbol -> 'se'
+aromatic_symbol -> 'as'
 bracket_atom -> '[' BAI ']'
 BAI -> isotope symbol BAC
 BAI -> symbol BAC
@@ -45,6 +54,8 @@ BACH -> charge
 BACH -> class
 symbol -> aliphatic_organic
 symbol -> aromatic_organic
+symbol -> element_symbol
+symbol -> aromatic_symbol
 isotope -> DIGIT
 isotope -> DIGIT DIGIT
 isotope -> DIGIT DIGIT DIGIT
@@ -139,13 +150,13 @@ max_rhs = max([len(l) for l in rhs_map])
 
 # rules 29 and 31 aren't used in the zinc data so we
 # 0 their masks so they can never be selected
-masks[:,29] = 0
-masks[:,31] = 0
+#masks[:,29] = 0
+#masks[:,31] = 0
 
 #%%
 def get_zinc_tokenizer():
     long_tokens = list(filter(lambda a: len(a) > 1, GCFG._lexical_index.keys()))
-    replacements = ['$','%','^'] # ,'&']
+    replacements = ['$','%','^','&','£','€','¦'] # ,'&']
     assert len(long_tokens) == len(replacements)
     for token in replacements:
         assert not token in GCFG._lexical_index
