@@ -34,10 +34,6 @@ aromatic_organic -> 'o'
 aromatic_organic -> 's'
 aromatic_organic -> 'p'
 element_symbol -> 'H'
-element_symbol -> 'Si'
-element_symbol -> 'Se'
-aromatic_symbol -> 'se'
-aromatic_symbol -> 'as'
 bracket_atom -> '[' BAI ']'
 BAI -> isotope symbol BAC
 BAI -> symbol BAC
@@ -49,16 +45,14 @@ BAC -> chiral
 BAH -> hcount BACH
 BAH -> BACH
 BAH -> hcount
-BACH -> charge class
 BACH -> charge
-BACH -> class
 symbol -> aliphatic_organic
 symbol -> aromatic_organic
 symbol -> element_symbol
-symbol -> aromatic_symbol
 isotope -> DIGIT
 isotope -> DIGIT DIGIT
 isotope -> DIGIT DIGIT DIGIT
+DIGIT -> '0'
 DIGIT -> '1'
 DIGIT -> '2'
 DIGIT -> '3'
@@ -67,6 +61,7 @@ DIGIT -> '5'
 DIGIT -> '6'
 DIGIT -> '7'
 DIGIT -> '8'
+DIGIT -> '9'
 chiral -> '@'
 chiral -> '@@'
 hcount -> 'H'
@@ -156,7 +151,8 @@ max_rhs = max([len(l) for l in rhs_map])
 #%%
 def get_zinc_tokenizer():
     long_tokens = list(filter(lambda a: len(a) > 1, GCFG._lexical_index.keys()))
-    replacements = ['$','%','^','&','£','€','¦'] # ,'&']
+    replacements = ['$','%','^'] # ,'&','£','€','¦','>']
+    #print(long_tokens)
     assert len(long_tokens) == len(replacements)
     for token in replacements:
         assert not token in GCFG._lexical_index
