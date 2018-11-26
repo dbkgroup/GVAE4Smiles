@@ -2,7 +2,7 @@
 """
 Created on Thu Oct  4 12:06:24 2018
 
-@author: Steve O'Hagan
+@author: mcdssso
 
 Based off: https://github.com/kanojikajino/grammarVAE
 Paper: https://arxiv.org/abs/1703.01925
@@ -18,11 +18,8 @@ from keras.layers.recurrent import GRU
 from keras.layers.convolutional import Convolution1D
 from keras.callbacks import ModelCheckpoint, ReduceLROnPlateau
 from keras.utils.vis_utils import model_to_dot
-from keras.utils import multi_gpu_model
-from keras import optimizers
 
 from IPython.display import SVG, display
-import matplotlib.pyplot as plt
 
 import tensorflow as tf
 import os
@@ -35,41 +32,7 @@ import getData
 from rdkit import Chem
 
 #%%
-MAX_LEN = getData.MAX_LEN
 
-rules = G.gram.split('\n')
-
-DIM = len(rules)
-
-masks_K      = K.variable(G.masks)
-ind_of_ind_K = K.variable(G.ind_of_ind)
-
-productions = G.GCFG.productions()
-prod_map = {}
-for ix, prod in enumerate(productions):
-    prod_map[prod] = ix
-lhs_map = {}
-for ix, lhs in enumerate(G.lhs_list):
-    lhs_map[lhs] = ix
-
-#%%
-class ModelMGPU(Model):
-    def __init__(self, ser_model, gpus):
-        pmodel = multi_gpu_model(ser_model, gpus)
-        self.__dict__.update(pmodel.__dict__)
-        self._smodel = ser_model
-
-    def __getattribute__(self, attrname):
-        '''Override load and save methods to be used from the serial-model. The
-        serial-model holds references to the weights in the multi-gpu model.
-        '''
-        # return Model.__getattribute__(self, attrname)
-        if 'load' in attrname or 'save' in attrname:
-            return getattr(self._smodel, attrname)
-
-        return super(ModelMGPU, self).__getattribute__(attrname)
-
-#%%
 def plotm(model):
     display(SVG(model_to_dot(model,show_shapes=True).create(prog='dot', format='svg')))
 
@@ -127,19 +90,16 @@ def buildEncoder(x, latent_rep_size, max_length, epsilon_std = 0.01):
     return (vae_loss, Lambda(sampling, output_shape=(latent_rep_size,), name='lambda')([z_mean, z_log_var]))
 
 #%%
-def buildDecoder(z, latent_rep_size, max_length, charset_length,grL=2,grf=128):
+def buildDecoder(z, latent_rep_size, max_length, charset_length):
     h = Dense(latent_rep_size, name='latent_input', activation = 'relu')(z)
     h = RepeatVector(max_length, name='repeat_vector')(h)
-    if grL>0:
-        h = GRU(grf, return_sequences = True, name='gru_1')(h)
-    if grL>1:
-        h = GRU(grf, return_sequences = True, name='gru_2')(h)
-    if grL>2:
-        h = GRU(grf, return_sequences = True, name='gru_3')(h)
+    h = GRU(501, return_sequences = True, name='gru_1')(h)
+    h = GRU(501, return_sequences = True, name='gru_2')(h)
+    h = GRU(501, return_sequences = True, name='gru_3')(h)
     return TimeDistributed(Dense(charset_length), name='decoded_mean')(h) # don't do softmax, we do this in the loss now
 
 #%%
-def create(charset, max_length = 277, latent_rep_size = 2, weights_file = None, mgpu=1):
+def create(charset, max_length = 277, latent_rep_size = 2, weights_file = None):
 
     charset_length = len(charset)
 
@@ -165,18 +125,9 @@ def create(charset, max_length = 277, latent_rep_size = 2, weights_file = None, 
         encoder.load_weights(weights_file, by_name = True)
         decoder.load_weights(weights_file, by_name = True)
         encoderMV.load_weights(weights_file, by_name = True)
-    #opt = optimizers.RMSprop()
-    #opt = optimizers.Adagrad()
-    #opt = optimizers.Adadelta()
-    #opt = optimizers.Adam()
-    opt = optimizers.SGD(momentum=0.8,nesterov=True)
-    if mgpu>1:
-        mgm=ModelMGPU(autoencoder, gpus=mgpu)
-        mgm.compile(optimizer = opt, loss = vae_loss, metrics = ['accuracy'])
-    else:
-        autoencoder.compile(optimizer = opt, loss = vae_loss, metrics = ['accuracy'])
-        mgm=None
-    return (autoencoder,encoder,decoder,encoderMV,mgm)
+
+    autoencoder.compile(optimizer = 'Adam', loss = vae_loss, metrics = ['accuracy'])
+    return (autoencoder,encoder,decoder,encoderMV)
 
 #%%
 def pop_or_nothing(S):
@@ -231,14 +182,14 @@ def sample_using_masks(unmasked):
     return X_hat # , ln_p
 
 #%%
-def encode(smiles,encoderMV):
+def encode(smiles):
     """ Encode a list of smiles strings into the latent space """
     assert type(smiles) == list
     one_hot = getData.to_one_hot(smiles)
     return encoderMV.predict(one_hot)[0]
 
 #%%
-def decode(z,decoder):
+def decode(z):
     """ Sample from the grammar decoder """
     assert z.ndim == 2
     unmasked = decoder.predict(z)
@@ -272,27 +223,67 @@ def OneHot2Smiles(OH):
     smiles = [prods_to_eq(prods) for prods in prod_seq]
     return smiles
 #%%
-def main(XTR,XTE,fn, LATENT = 56, EPOCHS = 100, BATCH = 500,refit=False,mgpu=1):
-    autoencoder,encoder,decoder,encoderMV,mgm = create(rules, max_length=MAX_LEN, latent_rep_size = LATENT)
-    model_save = fn+'_L' + str(LATENT) + '_E' + str(EPOCHS) + '_val.hdf5'
-    if (not os.path.isfile(model_save)) or refit:
-        print('Training autoencoder.')
+masks_K      = K.variable(G.masks)
+ind_of_ind_K = K.variable(G.ind_of_ind)
+
+if __name__ == "__main__":
+    rules = G.gram.split('\n')
+
+    MAX_LEN = 277
+    DIM = len(rules)
+    LATENT = 56
+    EPOCHS = 100
+    BATCH = 500
+
+    data = getData.getData()
+    XTE = data[0:5000]
+    XTR = data[5000:]
+
+    #%%
+    print('making new model')
+    autoencoder,encoder,decoder,encoderMV = create(rules, max_length=MAX_LEN, latent_rep_size = LATENT)
+
+    plotm(autoencoder)
+    plotm(encoder)
+    plotm(decoder)
+    plotm(encoderMV)
+
+    #%%
+    #model_save = "pretrained/zinc_vae_grammar_L56_E100_val.hdf5"
+    model_save = 'zinc_vae_grammar_L' + str(LATENT) + '_E' + str(EPOCHS) + '_val.hdf5'
+    print(model_save)
+
+    #%%
+    if not os.path.isfile(model_save):
         checkpointer = ModelCheckpoint(filepath = model_save, verbose = 1, save_best_only = True)
         reduce_lr = ReduceLROnPlateau(monitor = 'val_loss', factor = 0.2, patience = 3, min_lr = 0.0001)
-        if mgm is None:
-            autoencoder.fit(XTR, XTR, shuffle = True, epochs = EPOCHS,
-                            batch_size = BATCH, callbacks = [checkpointer, reduce_lr], validation_split = 0.1)
-        else:
-            mgm.fit(XTR, XTR, shuffle = True, epochs = EPOCHS,
-                            batch_size = BATCH, callbacks = [checkpointer, reduce_lr], validation_split = 0.1)
-    print('Loading weights')
+        autoencoder.fit(XTR, XTR, shuffle = True, epochs = EPOCHS,
+            batch_size = BATCH, callbacks = [checkpointer, reduce_lr], validation_split = 0.1)
+    #%%
     autoencoder.load_weights(model_save)
     encoder.load_weights(model_save, by_name = True)
     decoder.load_weights(model_save, by_name = True)
     encoderMV.load_weights(model_save, by_name = True)
+
+
+    #%%
+    productions = G.GCFG.productions()
+    prod_map = {}
+    for ix, prod in enumerate(productions):
+        prod_map[prod] = ix
+    lhs_map = {}
+    for ix, lhs in enumerate(G.lhs_list):
+        lhs_map[lhs] = ix
+
+    #%%
+
     smiles = OneHot2Smiles(XTE)
-    z1 = encode(smiles,encoderMV)
-    sz1 = decode(z1,decoder)
+
+    z1 = encode(smiles)
+
+    sz1 = decode(z1)
+
+    #%%
     perfect=0
     good=0
     nr=len(smiles)
@@ -303,78 +294,7 @@ def main(XTR,XTE,fn, LATENT = 56, EPOCHS = 100, BATCH = 500,refit=False,mgpu=1):
         s = cmpSmiles(real,mol)
         if s>=1.0:
             perfect+=1
-        print(real + '\n' + mol + ':', m,s,flush=True)
-    perfect = 100*perfect/nr
-    good = 100 * good/nr
-    return autoencoder,encoder,decoder,encoderMV, perfect, good
-
-#%%
-if __name__ == "__main__":
-
-    import gc
-    #from memory_profiler import profile
-
-    gc.collect()
-
-#%%
-    #fn = 'data/10kChEMBL23'
-
-    #fn = 'data/100kChEMBL23'
-
-    fn = 'data/250k_rndm_zinc_drugs_clean'
-    data = getData.getData(fn)
-
-#    fn = 'data/75k_rndm_zinc_drugs_clean'
-#    data = getData.getZnSubset(fn,75000)
-
-    nr = np.shape(data)[0]
-
-    tst = nr // 20
-
-    XTE = data[0:tst]
-    XTR = data[tst:]
-
-    #ToDo Hyperparameter Optimization.
-    #ToDo Thorough tidy-up
-
-    autoencoder,encoder,decoder,encoderMV,perfect,good = \
-        main(XTR,XTE,fn,EPOCHS=10, BATCH=128,refit=True)
-
-    print(perfect,good)
-    # got 44%,63% - with 250k Zinc, varies a lot between runs
-    #  2%, 17% 100k/50
-    #  0%, 4% 50k/50
-
-    #plot assumes running in Ipython
-    #plotm(autoencoder)
-    #plotm(encoder)
-    #plotm(decoder)
-    #plotm(encoderMV)
-
-    try:
-        h = autoencoder.history
-
-        plt.plot(h.history['acc'])
-        plt.plot(h.history['val_acc'])
-        plt.title('model accuracy')
-        plt.ylabel('accuracy')
-        plt.xlabel('epoch')
-        plt.legend(['train', 'test'], loc='upper left')
-        plt.show()
-
-        plt.plot(h.history['loss'])
-        plt.plot(h.history['val_loss'])
-        plt.title('model loss')
-        plt.ylabel('loss')
-        plt.xlabel('epoch')
-        plt.legend(['train', 'test'], loc='upper left')
-        plt.show()
-    except:
-        pass
-
-    del data,XTR,XTE,autoencoder,encoder,decoder,encoderMV
-
-    gc.collect()
-
+        print(real + '\n' + mol + ':', m,s)
+    print(perfect/nr,good/nr)
 
 

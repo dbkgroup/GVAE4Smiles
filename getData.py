@@ -3,7 +3,7 @@ import nltk
 import h5py
 import gc
 import sys
-import smilesG as G
+from GVAE import smilesG as G
 import os
 stdout = sys.stdout
 sys.stdout = open(os.devnull, 'w')
@@ -88,6 +88,19 @@ def to_one_hot(smiles):
     return one_hot
 
 #%%
+def grammarFilter(smiles):
+    assert type(smiles) == list
+    good = []
+    bad = []
+    for smi in smiles:
+        try:
+            OH = to_one_hot([smi])
+            good.append(smi)
+        except:
+            OH = None
+            bad.append(smi)
+        del OH
+    return good, bad
 
 def getSmi(fn):
     f = open(fn+'.smi','r')
@@ -149,6 +162,23 @@ def getZnSubset(fn,k):
         h5f.close()
     return data
 
+def makeCache(smifile,pth,verbose=True):
+    smi = getSmi(pth+smifile)
+    idx = {}
+    for i,s in enumerate(smi):
+        rid = 'ID'+str(i)
+        if verbose:
+            print(rid,s)
+        try:
+            oh = to_one_hot([s])
+            idx[rid]=s
+            fn=pth+rid
+            np.save(fn,oh)
+            np.save(pth+'idx',idx)
+        except:
+            pass
+    return idx
+
 def makeZnCache(pth = 'C:/DatCache/250kZinc/',verbose=True):
     fn = 'data/250k_rndm_zinc_drugs_clean'
     smi = getSmi(fn)
@@ -163,6 +193,10 @@ def makeZnCache(pth = 'C:/DatCache/250kZinc/',verbose=True):
         np.save(fn,oh)
     np.save(pth+'idx',idx)
     return idx
+
+def getCacheIDX(pth = 'C:/DatCache/250kZinc/'):
+    idx = np.load(pth+'idx.npy')
+    return idx.item()
 
 #%%
 def getZnIDX(pth = 'C:/DatCache/250kZinc/'):
@@ -210,22 +244,18 @@ class ZincDataGen(keras.utils.Sequence):
             X[i,] = np.load(self.pth + ID + '.npy')
         return X
 
+    def getDatAtID(self,ID):
+        X = np.load(self.pth + ID + '.npy')
+        return X
+
 #%%
 if __name__ == "__main__":
 
-    idx = getZnIDX()
+    pth = 'C:/DatCache/500kZinc/'
 
-    idList = list(idx.keys())
+    fn = 'Zn500k'
 
-    tid = idList[0]
-
-    s = 'C:/DatCache/250kZinc/' + tid + '.npy'
-
-    tmp = np.load(s)
-
-    generator = ZincDataGen(idList,128,(MAX_LEN,NCHARS))
-
-    tmp,t1 = generator.__getitem__(0)
+    idx = makeCache(fn,pth)
 
     pass
 

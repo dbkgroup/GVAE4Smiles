@@ -29,8 +29,8 @@ import os
 import numpy as np
 import nltk
 
-import smilesG as G
-import getData
+from GVAE import smilesG as G
+from GVAE import getData
 
 from rdkit import Chem, rdBase
 
@@ -131,7 +131,7 @@ def buildEncoder(x, latent_rep_size, max_length, epsilon_std = 0.01):
     return (vae_loss, Lambda(sampling, output_shape=(latent_rep_size,), name='lambda')([z_mean, z_log_var]))
 
 #%%
-def buildDecoder(z, latent_rep_size, max_length, charset_length,grL=2,grf=128):
+def buildDecoder(z, latent_rep_size, max_length, charset_length,grL=3,grf=501):
     h = Dense(latent_rep_size, name='latent_input', activation = 'relu')(z)
     h = RepeatVector(max_length, name='repeat_vector')(h)
     if grL>0:
@@ -169,11 +169,11 @@ def create(charset, max_length = 277, latent_rep_size = 2, weights_file = None, 
         encoder.load_weights(weights_file, by_name = True)
         decoder.load_weights(weights_file, by_name = True)
         encoderMV.load_weights(weights_file, by_name = True)
-    #opt = optimizers.RMSprop()
+    opt = optimizers.RMSprop()
     #opt = optimizers.Adagrad()
     #opt = optimizers.Adadelta()
     #opt = optimizers.Adam()
-    opt = optimizers.SGD(momentum=0.8,nesterov=True)
+    #opt = optimizers.SGD(momentum=0.8,nesterov=True)
     if mgpu>1:
         mgm=ModelMGPU(autoencoder, gpus=mgpu)
         mgm.compile(optimizer = opt, loss = vae_loss, metrics = ['accuracy'])
@@ -242,6 +242,22 @@ def encode(smiles,encoderMV):
     return encoderMV.predict(one_hot)[0]
 
 #%%
+def encodeFilter(smiles,encoderMV):
+    assert type(smiles) == list
+    good = []
+    bad = []
+    for smi in smiles:
+        try:
+            OH = getData.to_one_hot([smi])
+            good.append(smi)
+        except:
+            OH = None
+            bad.append(smi)
+        del OH
+    OH = getData.to_one_hot(good)
+    return encoderMV.predict(OH)[0], good, bad
+
+#%%
 def decode(z,decoder):
     """ Sample from the grammar decoder """
     assert z.ndim == 2
@@ -275,6 +291,20 @@ def OneHot2Smiles(OH):
                 for index in range(OH.shape[0])]
     smiles = [prods_to_eq(prods) for prods in prod_seq]
     return smiles
+
+#%%
+def loadModel(fn, LATENT = 56):
+    autoencoder,encoder,decoder,encoderMV,mgm = create(rules, max_length=MAX_LEN, latent_rep_size = LATENT)
+    model_save = fn
+    if (not os.path.isfile(model_save)):
+        print('No such file: ' + model_save)
+    print('Loading weights')
+    autoencoder.load_weights(model_save)
+    encoder.load_weights(model_save, by_name = True)
+    decoder.load_weights(model_save, by_name = True)
+    encoderMV.load_weights(model_save, by_name = True)
+    return autoencoder,encoder,decoder,encoderMV
+
 #%%
 def main(genr,vgenr,XTE,fn, LATENT = 56, EPOCHS = 100,refit=False,mgpu=1):
     domp=False
@@ -308,7 +338,7 @@ def main(genr,vgenr,XTE,fn, LATENT = 56, EPOCHS = 100,refit=False,mgpu=1):
         s = cmpSmiles(real,mol)
         if s>=1.0:
             perfect+=1
-        print(real + '\n' + mol + ':', m,s,flush=True)
+        #print(real + '\n' + mol + ':', m,s,flush=True)
     perfect = 100*perfect/nr
     good = 100 * good/nr
     return autoencoder,encoder,decoder,encoderMV, perfect, good
@@ -316,29 +346,39 @@ def main(genr,vgenr,XTE,fn, LATENT = 56, EPOCHS = 100,refit=False,mgpu=1):
 #%%
 if __name__ == "__main__":
 
-    fn = 'data/250k_rndm_zinc_drugs_clean'
+    fn = 'GVAE/data/250k_rndm_zinc_drugs_clean'
 
     idx = getData.getZnIDX()
 
     idList = list(idx.keys())
 
-    idTrain = idList[0:240000]
+    k = 240000
 
-    idValid = idList[240000:245000]
+    idTrain = idList[0:k]
 
-    idTest = idList[245000:]
+    idValid = idList[k:k+5000]
 
-    genr = getData.ZincDataGen(idTrain,128,(MAX_LEN,NCHARS))
+    idTest = idList[k+5000:k+7000]
 
-    vgenr = getData.ZincDataGen(idValid,128,(MAX_LEN,NCHARS))
+    batch = 512
+
+    genr = getData.ZincDataGen(idTrain,batch,(MAX_LEN,NCHARS))
+
+    vgenr = getData.ZincDataGen(idValid,batch,(MAX_LEN,NCHARS))
 
     tstgen = getData.ZincDataGen(idTest,2000,(MAX_LEN,NCHARS))
 
     XTE, _tmp =  tstgen.__getitem__(0)
 
-    del _tmp
+    del _tmp, tstgen
 
-    autoencoder,encoder,decoder,encoderMV,perfect,good=main(genr,vgenr,XTE,fn,EPOCHS=20,refit=True)
+#%%
+    LATENT = 56
+
+    rf = True
+
+    autoencoder,encoder,decoder,encoderMV,perfect,good = \
+        main(genr,vgenr,XTE,fn,LATENT=LATENT, EPOCHS=50,refit=rf)
 
     print(perfect,good)
     # got 44%,63% - with 250k Zinc, varies a lot between runs
@@ -367,7 +407,7 @@ if __name__ == "__main__":
         plt.title('model loss')
         plt.ylabel('loss')
         plt.xlabel('epoch')
-        plt.legend(['train', 'test'], loc='upper left')
+        plt.legend(['train', 'test'], loc='upper right')
         plt.show()
     except:
         pass
