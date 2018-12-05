@@ -1,13 +1,15 @@
+#%%
 import numpy as np
+import pandas as pd
 import nltk
 import h5py
 import gc
 import sys
-from GVAE import smilesG as G
+import smilesG as G
 import os
 stdout = sys.stdout
 sys.stdout = open(os.devnull, 'w')
-import keras
+from keras.utils import Sequence
 sys.stdout=stdout
 
 MAX_LEN=300 #was 277
@@ -162,22 +164,33 @@ def getZnSubset(fn,k):
         h5f.close()
     return data
 
-def makeCache(smifile,pth,verbose=True):
-    smi = getSmi(pth+smifile)
-    idx = {}
-    for i,s in enumerate(smi):
-        rid = 'ID'+str(i)
+def doSaveLoop(idx,pth):
+    outp = {}
+    for i,(rid,s) in enumerate(idx):
         if verbose:
             print(rid,s)
         try:
             oh = to_one_hot([s])
-            idx[rid]=s
+            outp[rid]=s
             fn=pth+rid
             np.save(fn,oh)
-            np.save(pth+'idx',idx)
         except:
-            pass
-    return idx
+            if verbose:
+                print('Failed:',rid,s)
+    return outp
+
+def makeCache(smifile,pth,count=None,verbose=True):
+    smi = getSmi(pth+smifile)
+    if count is None:
+        count = len(smi)
+    else:
+        assert count>0 and count<=len(smi)
+    smi = smi[0:count]
+    ids = ['ID'=str(i) for i in range(count))]
+    idx = dict(zip(ids,smi))
+    outp = doSaveLoop(idx,pth)
+    np.save(pth+'idx',outp)
+    return outp
 
 def makeZnCache(pth = 'C:/DatCache/250kZinc/',verbose=True):
     fn = 'data/250k_rndm_zinc_drugs_clean'
@@ -204,7 +217,7 @@ def getZnIDX(pth = 'C:/DatCache/250kZinc/'):
     return idx.item()
 
 #%%
-class ZincDataGen(keras.utils.Sequence):
+class ZincDataGen(Sequence):
 
     def __init__(self,idList,batchSz,dim,shuffle=True, pth = 'C:/DatCache/250kZinc/'):
         self.dim = dim
@@ -251,11 +264,11 @@ class ZincDataGen(keras.utils.Sequence):
 #%%
 if __name__ == "__main__":
 
-    pth = 'C:/DatCache/500kZinc/'
+    pth = 'C:/DatCache/test/'
 
     fn = 'Zn500k'
 
-    idx = makeCache(fn,pth)
+    idx = makeCache(fn,pth,count=100)
 
     pass
 
