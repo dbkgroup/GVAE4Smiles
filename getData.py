@@ -164,9 +164,9 @@ def getZnSubset(fn,k):
         h5f.close()
     return data
 
-def doSaveLoop(idx,pth):
+def doSaveLoop(idx,pth,verbose=True):
     outp = {}
-    for i,(rid,s) in enumerate(idx):
+    for i,(rid,s) in enumerate(idx.items()):
         if verbose:
             print(rid,s)
         try:
@@ -186,9 +186,9 @@ def makeCache(smifile,pth,count=None,verbose=True):
     else:
         assert count>0 and count<=len(smi)
     smi = smi[0:count]
-    ids = ['ID'=str(i) for i in range(count))]
+    ids = ['ID'+str(i) for i in range(count)]
     idx = dict(zip(ids,smi))
-    outp = doSaveLoop(idx,pth)
+    outp = doSaveLoop(idx,pth,verbose=verbose)
     np.save(pth+'idx',outp)
     return outp
 
