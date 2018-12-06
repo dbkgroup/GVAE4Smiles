@@ -8,6 +8,10 @@ import sys
 import smilesG as G
 import os
 import time
+#import multiprocessing
+import concurrent.futures
+
+from functools import partial
 
 from pathlib import Path
 
@@ -172,44 +176,20 @@ def clearCache(pth):
     for p in Path(pth).glob("*.npy"):
         p.unlink()
 
-def oneLoop(pth,verbose=True):
 
-    def dSL(idx):
-        (rid,s) = idx
-        outp={}
-        if verbose:
-            print(rid,s)
-        try:
-            oh = to_one_hot([s])
-            outp[rid]=s
-            fn=pth+rid
-            np.save(fn,oh)
-        except:
-            if verbose:
-                print('Failed:',rid,s)
-        return outp
+def saveOne(idx,pth):
+    (rid,s) = idx
+    outp={}
+    print(rid,s)
+    try:
+        oh = to_one_hot([s])
+        outp[rid]=s
+        fn=pth+rid
+        np.save(fn,oh)
+    except:
+        print('Failed:',rid,s)
+    return outp
 
-    return dSL
-
-
-def doSaveLoop(pth,verbose=True):
-    
-    def dSL(idx):
-        outp = {}
-        for (rid,s) in idx.items():
-            if verbose:
-                print(rid,s)
-            try:
-                oh = to_one_hot([s])
-                outp[rid]=s
-                fn=pth+rid
-                np.save(fn,oh)
-            except:
-                if verbose:
-                    print('Failed:',rid,s)
-        return outp
-
-    return dSL
 
 def makeCache(smifile,pth,count=None,verbose=True):
     smi = getSmi(pth+smifile)
@@ -220,8 +200,11 @@ def makeCache(smifile,pth,count=None,verbose=True):
     smi = smi[0:count]
     ids = ['ID'+str(i) for i in range(count)]
     idx = dict(zip(ids,smi))
-    dsl = oneLoop(pth,verbose=verbose)
-    outp = list(map(dsl,idx.items()))
+    with concurrent.futures.ProcessPoolExecutor() as executor:
+        outp = executor.map(partial(saveOne,pth=pth),idx.items())
+    #pool = multiprocessing.Pool()
+    #outp = pool.map(partial(saveOne,pth=pth),idx.items())
+    #outp = list(map(dsl,idx.items()))
     result={}
     for d in outp:
         result.update(d)
