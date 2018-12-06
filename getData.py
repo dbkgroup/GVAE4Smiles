@@ -7,6 +7,10 @@ import gc
 import sys
 import smilesG as G
 import os
+import time
+
+from pathlib import Path
+
 stdout = sys.stdout
 sys.stdout = open(os.devnull, 'w')
 from keras.utils import Sequence
@@ -164,9 +168,15 @@ def getZnSubset(fn,k):
         h5f.close()
     return data
 
-def doSaveLoop(idx,pth,verbose=True):
-    outp = {}
-    for i,(rid,s) in enumerate(idx.items()):
+def clearCache(pth):
+    for p in Path(pth).glob("*.npy"):
+        p.unlink()
+
+def oneLoop(pth,verbose=True):
+
+    def dSL(idx):
+        (rid,s) = idx
+        outp={}
         if verbose:
             print(rid,s)
         try:
@@ -177,7 +187,29 @@ def doSaveLoop(idx,pth,verbose=True):
         except:
             if verbose:
                 print('Failed:',rid,s)
-    return outp
+        return outp
+
+    return dSL
+
+
+def doSaveLoop(pth,verbose=True):
+    
+    def dSL(idx):
+        outp = {}
+        for (rid,s) in idx.items():
+            if verbose:
+                print(rid,s)
+            try:
+                oh = to_one_hot([s])
+                outp[rid]=s
+                fn=pth+rid
+                np.save(fn,oh)
+            except:
+                if verbose:
+                    print('Failed:',rid,s)
+        return outp
+
+    return dSL
 
 def makeCache(smifile,pth,count=None,verbose=True):
     smi = getSmi(pth+smifile)
@@ -188,9 +220,18 @@ def makeCache(smifile,pth,count=None,verbose=True):
     smi = smi[0:count]
     ids = ['ID'+str(i) for i in range(count)]
     idx = dict(zip(ids,smi))
-    outp = doSaveLoop(idx,pth,verbose=verbose)
+    dsl = oneLoop(pth,verbose=verbose)
+    outp = list(map(dsl,idx.items()))
+    result={}
+    for d in outp:
+        result.update(d)
+    outp = result
     np.save(pth+'idx',outp)
     return outp
+
+def getDatAtID(pth,ID):
+        X = np.load(pth + ID + '.npy')
+        return X
 
 def makeZnCache(pth = 'C:/DatCache/250kZinc/',verbose=True):
     fn = 'data/250k_rndm_zinc_drugs_clean'
@@ -263,14 +304,34 @@ class ZincDataGen(Sequence):
 
 #%%
 if __name__ == "__main__":
-
+#%%
     pth = 'C:/DatCache/test/'
+    
+    #pth = "/DATA/SGODATA/Dat4GVAE/1MZinc/"
 
-    fn = 'Zn500k'
+    #pth = "/DATA/SGODATA/Dat4GVAE/test/"
 
-    idx = makeCache(fn,pth,count=100)
+#%%
+    clearCache(pth)
 
-    pass
+    fn = "Zn500k"
+    #fn = '1MZinc'
+
+    t0 = time.time()
+
+    idx = makeCache(fn,pth,count=1000)
+    
+    t1 = time.time() - t0
+    
+    print("Time: ", t1)
+#%%
+    del idx
+
+    idx = getCacheIDX(pth)
+#%%
+    #for x in  idx.items():
+    #    print(x[0],x[1])
+
 
 
 
