@@ -25,12 +25,12 @@ from IPython.display import SVG, display
 import matplotlib.pyplot as plt
 
 import tensorflow as tf
-import os
+import os, sys
 import numpy as np
 import nltk
 
-from GVAE import smilesG as G
-from GVAE import getData
+import smilesG as G
+import getData
 
 from rdkit import Chem, rdBase
 
@@ -49,12 +49,8 @@ masks_K      = K.variable(G.masks)
 ind_of_ind_K = K.variable(G.ind_of_ind)
 
 productions = G.GCFG.productions()
-prod_map = {}
-for ix, prod in enumerate(productions):
-    prod_map[prod] = ix
-lhs_map = {}
-for ix, lhs in enumerate(G.lhs_list):
-    lhs_map[lhs] = ix
+
+lhs_map = getData.lhs_map
 
 #%%
 class ModelMGPU(Model):
@@ -169,10 +165,10 @@ def create(charset, max_length = 277, latent_rep_size = 2, weights_file = None, 
         encoder.load_weights(weights_file, by_name = True)
         decoder.load_weights(weights_file, by_name = True)
         encoderMV.load_weights(weights_file, by_name = True)
-    opt = optimizers.RMSprop()
+    #opt = optimizers.RMSprop()
     #opt = optimizers.Adagrad()
     #opt = optimizers.Adadelta()
-    #opt = optimizers.Adam()
+    opt = optimizers.Adam()
     #opt = optimizers.SGD(momentum=0.8,nesterov=True)
     if mgpu>1:
         mgm=ModelMGPU(autoencoder, gpus=mgpu)
@@ -187,19 +183,6 @@ def pop_or_nothing(S):
     try: return S.pop()
     except: return 'Nothing'
 
-def prods_to_eq(prods):
-    seq = [prods[0].lhs()]
-    for prod in prods:
-        if str(prod.lhs()) == 'Nothing':
-            break
-        for ix, s in enumerate(seq):
-            if s == prod.lhs():
-                seq = seq[:ix] + list(prod.rhs()) + seq[ix+1:]
-                break
-    try:
-        return ''.join(seq)
-    except:
-        return ''
 
 def sample_using_masks(unmasked):
     """ Samples a one-hot vector, masking at each timestep.
@@ -267,7 +250,7 @@ def decode(z,decoder):
     prod_seq = [[productions[X_hat[index,t].argmax()]
                  for t in range(X_hat.shape[1])]
                 for index in range(X_hat.shape[0])]
-    return [prods_to_eq(prods) for prods in prod_seq]
+    return [getData.prods_to_eq(prods) for prods in prod_seq]
 
 def isGood(smi):
     if smi == '':
@@ -284,17 +267,10 @@ def cmpSmiles(s1,s2):
     hit=sum([x==y for x,y in zip(s1,s2)])
     return hit/mx
 
-#%%
-def OneHot2Smiles(OH):
-    prod_seq = [[productions[OH[index,t].argmax()]
-                 for t in range(OH.shape[1])]
-                for index in range(OH.shape[0])]
-    smiles = [prods_to_eq(prods) for prods in prod_seq]
-    return smiles
 
 #%%
 def loadModel(fn, LATENT = 56):
-    autoencoder,encoder,decoder,encoderMV,mgm = create(rules, max_length=MAX_LEN, latent_rep_size = LATENT)
+    autoencoder,encoder,decoder,encoderMV,_mgm = create(rules, max_length=MAX_LEN, latent_rep_size = LATENT)
     model_save = fn
     if (not os.path.isfile(model_save)):
         print('No such file: ' + model_save)
@@ -306,7 +282,7 @@ def loadModel(fn, LATENT = 56):
     return autoencoder,encoder,decoder,encoderMV
 
 #%%
-def main(genr,vgenr,XTE,fn, LATENT = 56, EPOCHS = 100,refit=False,mgpu=1):
+def doFitWithRestart(genr,vgenr,XTE,fn, LATENT = 56, EPOCHS = 100,refit=False,mgpu=1):
     domp=False
     autoencoder,encoder,decoder,encoderMV,mgm = create(rules, max_length=MAX_LEN, latent_rep_size = LATENT,mgpu=mgpu)
     model_save = fn+'_L' + str(LATENT) + '_E' + str(EPOCHS) + '_val.hdf5'
@@ -325,7 +301,16 @@ def main(genr,vgenr,XTE,fn, LATENT = 56, EPOCHS = 100,refit=False,mgpu=1):
     encoder.load_weights(model_save, by_name = True)
     decoder.load_weights(model_save, by_name = True)
     encoderMV.load_weights(model_save, by_name = True)
-    smiles = OneHot2Smiles(XTE)
+    print('Continue Fit')
+    checkpointer = ModelCheckpoint(filepath = model_save, verbose = 1, save_best_only = True)
+    reduce_lr = ReduceLROnPlateau(monitor = 'val_loss', factor = 0.2, patience = 3, min_lr = 0.0001)
+    if mgm is None:
+        autoencoder.fit_generator(generator=genr, validation_data=vgenr, epochs = EPOCHS,
+             use_multiprocessing=domp, workers=6, callbacks = [checkpointer, reduce_lr])
+    else:
+        mgm.fit_generator(generator=genr, validation_data=vgenr, epochs = EPOCHS,
+             use_multiprocessing=domp, workers=6, callbacks = [checkpointer, reduce_lr])
+    smiles = getData.OneHot2Smiles(XTE)
     z1 = encode(smiles,encoderMV)
     sz1 = decode(z1,decoder)
     perfect=0
@@ -343,16 +328,82 @@ def main(genr,vgenr,XTE,fn, LATENT = 56, EPOCHS = 100,refit=False,mgpu=1):
     good = 100 * good/nr
     return autoencoder,encoder,decoder,encoderMV, perfect, good
 
+def doFit(genr,vgenr,XTE,fn, LATENT = 56, EPOCHS = 100,refit=False,mgpu=1):
+    domp=False
+    autoencoder,encoder,decoder,encoderMV,mgm = create(rules, max_length=MAX_LEN, latent_rep_size = LATENT,mgpu=mgpu)
+    model_save = fn+'_L' + str(LATENT) + '_E' + str(EPOCHS) + '_val.hdf5'
+    if (not os.path.isfile(model_save)) or refit:
+        print('Training autoencoder.')
+        checkpointer = ModelCheckpoint(filepath = model_save, verbose = 1, save_best_only = True)
+        reduce_lr = ReduceLROnPlateau(monitor = 'val_loss', factor = 0.2, patience = 3, min_lr = 0.0001)
+        if mgm is None:
+            autoencoder.fit_generator(generator=genr, validation_data=vgenr, epochs = EPOCHS,
+                            use_multiprocessing=domp, workers=6, callbacks = [checkpointer, reduce_lr])
+        else:
+            mgm.fit_generator(generator=genr, validation_data=vgenr, epochs = EPOCHS,
+                              use_multiprocessing=domp, workers=6, callbacks = [checkpointer, reduce_lr])
+    print('Loading weights')
+    autoencoder.load_weights(model_save)
+    encoder.load_weights(model_save, by_name = True)
+    decoder.load_weights(model_save, by_name = True)
+    encoderMV.load_weights(model_save, by_name = True)
+    smiles = getData.OneHot2Smiles(XTE)
+    z1 = encode(smiles,encoderMV)
+    sz1 = decode(z1,decoder)
+    perfect=0
+    good=0
+    nr=len(smiles)
+    for mol,real in zip(sz1,smiles):
+        m = isGood(mol)
+        if m:
+            good+=1
+        s = cmpSmiles(real,mol)
+        if s>=1.0:
+            perfect+=1
+        #print(real + '\n' + mol + ':', m,s,flush=True)
+    perfect = 100*perfect/nr
+    good = 100 * good/nr
+    return autoencoder,encoder,decoder,encoderMV, perfect, good
+
+
+def plotAcc(model):
+    h = model.history
+    plt.plot(h.history['acc'])
+    plt.plot(h.history['val_acc'])
+    plt.title('model accuracy')
+    plt.ylabel('accuracy')
+    plt.xlabel('epoch')
+    plt.legend(['train', 'test'], loc='upper left')
+    plt.show()
+
+def plotLoss(model):
+    h = model.history
+    plt.plot(h.history['loss'])
+    plt.plot(h.history['val_loss'])
+    plt.title('model loss')
+    plt.ylabel('loss')
+    plt.xlabel('epoch')
+    plt.legend(['train', 'test'], loc='upper right')
+    plt.show()
+
+
 #%%
 if __name__ == "__main__":
 
-    fn = 'GVAE/data/250k_rndm_zinc_drugs_clean'
+#%%
+    if getData.getPlatform() == 'Windows':
+        pth = 'D:/DatCache/500kZinc/' #Windows 500k Zn
+    else:
+        pth = '/DATA/SGODATA/Dat4GVAE/500kZinc/' #Linux 500k Zn
 
-    idx = getData.getZnIDX()
+#%%
+    fn = './data/500kZinc' #for model save
+
+    idx = getData.getCacheIDX(pth=pth)
 
     idList = list(idx.keys())
 
-    k = 240000
+    k = 5000 # testing
 
     idTrain = idList[0:k]
 
@@ -360,13 +411,16 @@ if __name__ == "__main__":
 
     idTest = idList[k+5000:k+7000]
 
-    batch = 512
+    gpus = 1
 
-    genr = getData.ZincDataGen(idTrain,batch,(MAX_LEN,NCHARS))
+    #batch = 512 * gpus
+    batch = 256 * gpus
 
-    vgenr = getData.ZincDataGen(idValid,batch,(MAX_LEN,NCHARS))
+    genr = getData.ZincDataGen(idTrain,batch,(MAX_LEN,NCHARS),pth=pth)
 
-    tstgen = getData.ZincDataGen(idTest,2000,(MAX_LEN,NCHARS))
+    vgenr = getData.ZincDataGen(idValid,batch,(MAX_LEN,NCHARS),pth=pth)
+
+    tstgen = getData.ZincDataGen(idTest,2000,(MAX_LEN,NCHARS),pth=pth)
 
     XTE, _tmp =  tstgen.__getitem__(0)
 
@@ -374,16 +428,20 @@ if __name__ == "__main__":
 
 #%%
     LATENT = 56
-
+    EPO = 2
     rf = True
 
     autoencoder,encoder,decoder,encoderMV,perfect,good = \
-        main(genr,vgenr,XTE,fn,LATENT=LATENT, EPOCHS=50,refit=rf)
+        doFitWithRestart(genr,vgenr,XTE,fn,LATENT=LATENT, EPOCHS=EPO,refit=rf, mgpu=gpus)
 
     print(perfect,good)
     # got 44%,63% - with 250k Zinc, varies a lot between runs
     #  2%, 17% 100k/50
     #  0%, 4% 50k/50
+
+    plotAcc(autoencoder)
+
+    h = autoencoder.history.history
 
     #plot assumes running in Ipython
     #plotm(autoencoder)
@@ -391,25 +449,6 @@ if __name__ == "__main__":
     #plotm(decoder)
     #plotm(encoderMV)
 #%%
-    try:
-        h = autoencoder.history
 
-        plt.plot(h.history['acc'])
-        plt.plot(h.history['val_acc'])
-        plt.title('model accuracy')
-        plt.ylabel('accuracy')
-        plt.xlabel('epoch')
-        plt.legend(['train', 'test'], loc='upper left')
-        plt.show()
-
-        plt.plot(h.history['loss'])
-        plt.plot(h.history['val_loss'])
-        plt.title('model loss')
-        plt.ylabel('loss')
-        plt.xlabel('epoch')
-        plt.legend(['train', 'test'], loc='upper right')
-        plt.show()
-    except:
-        pass
 
 

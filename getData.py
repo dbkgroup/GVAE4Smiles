@@ -23,12 +23,33 @@ sys.stdout=stdout
 MAX_LEN=300 #was 277
 NCHARS = len(G.GCFG.productions())
 
+productions = G.GCFG.productions()
+
 #%%
 prod_map = {}
-for ix, prod in enumerate(G.GCFG.productions()):
+for ix, prod in enumerate(productions):
     prod_map[prod] = ix
+
 tokenize = G.get_zinc_tokenizer()
 parser = nltk.ChartParser(G.GCFG)
+
+lhs_map = {}
+for ix, lhs in enumerate(G.lhs_list):
+    lhs_map[lhs] = ix
+
+def prods_to_eq(prods):
+    seq = [prods[0].lhs()]
+    for prod in prods:
+        if str(prod.lhs()) == 'Nothing':
+            break
+        for ix, s in enumerate(seq):
+            if s == prod.lhs():
+                seq = seq[:ix] + list(prod.rhs()) + seq[ix+1:]
+                break
+    try:
+        return ''.join(seq)
+    except:
+        return ''
 
 #%%
 def checkCompat(smi):
@@ -62,7 +83,6 @@ def filterOK(smiles):
 
 #%%
 
-
 def getML(smiles):
     """ Check MAX_LEN """
     assert type(smiles) == list
@@ -82,6 +102,14 @@ def getML(smiles):
     return ML
 
 #%%
+
+def OneHot2Smiles(OH):
+    prod_seq = [[productions[OH[index,t].argmax()]
+                 for t in range(OH.shape[1])]
+                for index in range(OH.shape[0])]
+    smiles = [prods_to_eq(prods) for prods in prod_seq]
+    return smiles
+
 def to_one_hot(smiles):
     """ Encode a list of smiles strings to one-hot vectors """
     assert type(smiles) == list
@@ -202,9 +230,6 @@ def makeCache(smifile,pth,count=None,verbose=True):
     idx = dict(zip(ids,smi))
     with concurrent.futures.ProcessPoolExecutor() as executor:
         outp = executor.map(partial(saveOne,pth=pth),idx.items())
-    #pool = multiprocessing.Pool()
-    #outp = pool.map(partial(saveOne,pth=pth),idx.items())
-    #outp = list(map(dsl,idx.items()))
     result={}
     for d in outp:
         result.update(d)
@@ -218,27 +243,24 @@ def getDatAtID(pth,ID):
 
 def makeZnCache(pth = 'C:/DatCache/250kZinc/',verbose=True):
     fn = 'data/250k_rndm_zinc_drugs_clean'
-    smi = getSmi(fn)
-    idx = {}
-    for i,s in enumerate(smi):
-        rid = 'ID'+str(i)
-        if verbose:
-            print(rid,s)
-        idx[rid]=s
-        oh = to_one_hot([s])
-        fn=pth+rid
-        np.save(fn,oh)
-    np.save(pth+'idx',idx)
+    idx = makeCache(fn,pth,count=None,verbose=verbose)
     return idx
 
 def getCacheIDX(pth = 'C:/DatCache/250kZinc/'):
     idx = np.load(pth+'idx.npy')
     return idx.item()
 
-#%%
-def getZnIDX(pth = 'C:/DatCache/250kZinc/'):
-    idx = np.load(pth+'idx.npy')
-    return idx.item()
+def getPlatform():
+    platforms = {
+        'linux1' : 'Linux',
+        'linux2' : 'Linux',
+        'darwin' : 'OS X',
+        'win32' : 'Windows'
+    }
+    if sys.platform not in platforms:
+        return sys.platform
+    return platforms[sys.platform]
+
 
 #%%
 class ZincDataGen(Sequence):
@@ -288,12 +310,15 @@ class ZincDataGen(Sequence):
 #%%
 if __name__ == "__main__":
 #%%
-    pth = 'C:/DatCache/test/'
-    
-    #pth = "/DATA/SGODATA/Dat4GVAE/1MZinc/"
+    if getPlatform() == 'Windows':
+        #pth = 'D:/DatCache/500kZinc/' #Windows
+        pth = 'C:/DatCache/test/'
+    else:
+        pth = '/DATA/SGODATA/Dat4GVAE/test/' #Linux
+        #pth = "/DATA/SGODATA/Dat4GVAE/1MZinc/"
+        #pth = "/DATA/SGODATA/Dat4GVAE/test/"
 
-    #pth = "/DATA/SGODATA/Dat4GVAE/test/"
-
+     
 #%%
     clearCache(pth)
 
@@ -302,6 +327,7 @@ if __name__ == "__main__":
 
     t0 = time.time()
 
+    #idx = makeCache(fn,pth,count=None)
     idx = makeCache(fn,pth,count=1000)
     
     t1 = time.time() - t0
