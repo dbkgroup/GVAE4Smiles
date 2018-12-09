@@ -8,6 +8,7 @@ Based off: https://github.com/kanojikajino/grammarVAE
 Paper: https://arxiv.org/abs/1703.01925
 
 """
+#%%
 from keras import backend as K
 from keras import objectives
 from keras.models import Model
@@ -30,6 +31,20 @@ import smilesG as G
 import getData
 
 from rdkit import Chem
+
+MAX_LEN = getData.MAX_LEN
+NCHARS = getData.NCHARS
+
+rules = G.gram.split('\n')
+
+DIM = len(rules)
+
+masks_K      = K.variable(G.masks)
+ind_of_ind_K = K.variable(G.ind_of_ind)
+
+productions = G.GCFG.productions()
+
+lhs_map = getData.lhs_map
 
 #%%
 
@@ -134,19 +149,6 @@ def pop_or_nothing(S):
     try: return S.pop()
     except: return 'Nothing'
 
-def prods_to_eq(prods):
-    seq = [prods[0].lhs()]
-    for prod in prods:
-        if str(prod.lhs()) == 'Nothing':
-            break
-        for ix, s in enumerate(seq):
-            if s == prod.lhs():
-                seq = seq[:ix] + list(prod.rhs()) + seq[ix+1:]
-                break
-    try:
-        return ''.join(seq)
-    except:
-        return ''
 
 def sample_using_masks(unmasked):
     """ Samples a one-hot vector, masking at each timestep.
@@ -198,7 +200,7 @@ def decode(z):
     prod_seq = [[productions[X_hat[index,t].argmax()]
                  for t in range(X_hat.shape[1])]
                 for index in range(X_hat.shape[0])]
-    return [prods_to_eq(prods) for prods in prod_seq]
+    return [getData.prods_to_eq(prods) for prods in prod_seq]
 
 def isGood(smi):
     if smi == '':
@@ -216,28 +218,18 @@ def cmpSmiles(s1,s2):
     return hit/mx
 
 #%%
-def OneHot2Smiles(OH):
-    prod_seq = [[productions[OH[index,t].argmax()]
-                 for t in range(OH.shape[1])]
-                for index in range(OH.shape[0])]
-    smiles = [prods_to_eq(prods) for prods in prod_seq]
-    return smiles
-#%%
-masks_K      = K.variable(G.masks)
-ind_of_ind_K = K.variable(G.ind_of_ind)
 
 if __name__ == "__main__":
-    rules = G.gram.split('\n')
-
-    MAX_LEN = 277
-    DIM = len(rules)
+    
     LATENT = 56
     EPOCHS = 100
-    BATCH = 500
+    BATCH = 256
 
-    data = getData.getData()
-    XTE = data[0:5000]
-    XTR = data[5000:]
+    fn = './data/250kZinc'
+
+    data = getData.getData(fn,clr=True)
+    XTR = data[0:5000]
+    XTE = data[5000:7000] #test subset
 
     #%%
     print('making new model')
@@ -267,17 +259,8 @@ if __name__ == "__main__":
 
 
     #%%
-    productions = G.GCFG.productions()
-    prod_map = {}
-    for ix, prod in enumerate(productions):
-        prod_map[prod] = ix
-    lhs_map = {}
-    for ix, lhs in enumerate(G.lhs_list):
-        lhs_map[lhs] = ix
 
-    #%%
-
-    smiles = OneHot2Smiles(XTE)
+    smiles = getData.OneHot2Smiles(XTE)
 
     z1 = encode(smiles)
 

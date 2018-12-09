@@ -322,7 +322,7 @@ if __name__ == "__main__":
 #%%
     clearCache(pth)
 
-    fn = "Zn500k"
+    fn = "500kZinc"
     #fn = '1MZinc'
 
     t0 = time.time()
