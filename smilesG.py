@@ -8,7 +8,7 @@ import nltk
 import numpy as np
 import six
 
-#%%
+MAX_LEN = 300
 
 # Subset of Open SMILES grammar
 # See: http://opensmiles.org/opensmiles.html
@@ -94,7 +94,9 @@ chain -> chain branched_atom
 chain -> chain bond branched_atom
 Nothing -> None"""
 
-#%%
+rules = gram.split('\n')
+
+DIM = len(rules)
 
 # form the CFG and get the start symbol
 GCFG = nltk.CFG.fromstring(gram)

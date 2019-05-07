@@ -110,3 +110,7 @@ venv.bak/
 
 # SGO Extra
 data/*.hdf5
+data/archived
+logs
+.vscode
+data/6MZincHV2
