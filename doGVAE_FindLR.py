@@ -12,9 +12,8 @@ Paper: https://arxiv.org/abs/1703.01925
 from time import time
 
 import numpy as np
-import h5py
 
-from generateData import H5DataGenV2
+from generateData import H5DataGenV2, getCacheSize
 
 from GVAE import smilesGVAE
 
@@ -28,14 +27,12 @@ if __name__ == "__main__":
     fn = f'data/FindLR_{int(time())}' #for model save
     print('Path:',pth)
     print('Model save:',fn)
-    with h5py.File(pth+'cache.h5','r') as hf:
-        dset = hf['default']
-        n = np.shape(dset)[0]
+    n = getCacheSize(pth)
     indices = np.arange(n)
     idTrain = indices[0:k]
     idValid = indices[k:k+4000]
     idTest = indices[k+4000:k+6000]
-    batch = 325 * gpus
+    batch = 256 * gpus
     genr = H5DataGenV2(idTrain,batch,pth=pth)
     vgenr = H5DataGenV2(idValid,batch,pth=pth)
     tstgen = H5DataGenV2(idTest,2000,pth=pth)
@@ -49,7 +46,7 @@ if __name__ == "__main__":
         'beta':1.0,
         'gruf':501,
         'ngpu':gpus,
-        'opt':'adam',
+        'opt':'SGD',
         'wFile':None
     }
 

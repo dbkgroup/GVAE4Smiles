@@ -9,12 +9,11 @@ Paper: https://arxiv.org/abs/1703.01925
 
 """
 
-from generateData import H5DataGenV2
+from generateData import H5DataGenV2, getCacheSize
 
-from GVAE import smilesGVAE, plotm
+from GVAE import smilesGVAE
 
 import numpy as np
-import h5py
 
 #%%
 if __name__ == "__main__":
@@ -22,9 +21,8 @@ if __name__ == "__main__":
     pth = 'data/6MZincHV2/' #for data cache
     k = 500000
 
-    with h5py.File(pth+'cache.h5','r') as hf:
-        dset = hf['default']
-        n = np.shape(dset)[0]
+    n = getCacheSize(pth)
+
     indices = np.arange(n)
     #take training set from front of data
     idTrain = indices[0:k]
@@ -32,34 +30,33 @@ if __name__ == "__main__":
     idValid = indices[-6000:-2000]
     idTest = indices[-2000:]
 
-    gpus = 4
-    batch = 312 * gpus
+    gpus = 1
+    batch = 256 * gpus
 
     genr = H5DataGenV2(idTrain,batch,pth=pth)
     vgenr = H5DataGenV2(idValid,batch,pth=pth)
     tstgen = H5DataGenV2(idTest,2000,pth=pth)
-    
+
     XTE, _tmp =  tstgen.__getitem__(0)
     del _tmp, tstgen
 
     params  = {
-        'LATENT':56, 
-        'nC':1, 
-        'nD':1, 
-        'beta':1.0, 
+        'LATENT':56,
+        'nC':1,
+        'nD':1,
+        'beta':1.0,
         'gruf':256,
         'ngpu':gpus,
         'opt':'adam',
-        'wFile':None
+        'wFile':None,
+        'EPO':1
     }
-        
-    EPO = 1
-    
-    fn = f'testA'
+
+    fn = 'tmp_testA'
 
     sgv = smilesGVAE(**params)
 
-    sgv.doFitG(genr,vgenr,fn, EPOCHS = EPO)
+    sgv.doFitG(genr,vgenr,fn)
 
     sgv.loadWeights(fn+'.hdf5')
 
@@ -73,5 +70,5 @@ if __name__ == "__main__":
 
     sgv.testPerformance(XTE)
 
-    
+
 

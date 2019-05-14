@@ -114,3 +114,4 @@ data/archived
 logs
 .vscode
 data/6MZincHV2
+tmp_*.*

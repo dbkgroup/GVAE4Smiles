@@ -41,6 +41,13 @@ def makeCacheHV(smifile,pth,cnt=None,verbose=True):
     print("Time:",t1)
     return outp
 
+def getCacheSize(pth):
+    with h5py.File(pth+'cache.h5','r') as hf:
+        dset = hf['default']
+        n = np.shape(dset)[0]
+    return n
+
+
 class H5DataGenV2(Sequence):
     """Generate data batches from cached h5py file."""
 
@@ -104,9 +111,7 @@ class H5DataGenV2(Sequence):
 
 def testHVGen(cnt=5000):
     pth = 'data/6MZincHV2/'
-    with h5py.File(pth+'cache.h5','r') as hf:
-        dset=hf['default']
-        n = dset.shape[0]
+    n = getCacheSize(pth)
     print('Cache:',n)
     indices = np.arange(n)
     np.random.shuffle(indices)
@@ -123,7 +128,6 @@ def testHVGen(cnt=5000):
     t1 = time() - t0
     print('Time:',t1)
     print(np.shape(x),x.dtype)
-
 
 
 #%%
